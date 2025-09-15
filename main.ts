@@ -32,7 +32,7 @@ class MyPortfolioWebSiteTerraformStack extends TerraformStack {
      * the place where track the resources has been created
      */
     new S3Backend(scope, {
-      bucket: "ireshan-pathirana.com-infra-state",
+      bucket: process.env.REMOTE_STATE_S3_BUCKET_NAME as string,
       key: "terraform.tfstate",
       encrypt: true
     });
@@ -42,7 +42,7 @@ class MyPortfolioWebSiteTerraformStack extends TerraformStack {
      * It's private because CloudFront OAC will handle secure access.
      */
     const bucket = new S3Bucket(scope, 'ireshanpathirana-website-s3', {
-      bucket: 'ireshanpathirana.com',
+      bucket: process.env.WEB_SITE_CUSTOM_DOMAIN as string, // bucket name should be same as website domain
       acl: 'private',
       versioning: { enabled: false },
       corsRule: [
