@@ -4,7 +4,10 @@ import { S3Bucket } from "@cdktf/provider-aws/lib/s3-bucket";
 import { CloudfrontDistribution } from "@cdktf/provider-aws/lib/cloudfront-distribution";
 import { CloudfrontOriginAccessControl } from "@cdktf/provider-aws/lib/cloudfront-origin-access-control";
 import { S3BucketPolicy } from "@cdktf/provider-aws/lib/s3-bucket-policy";
-import { createAwsProvider } from "./provider";
+import * as dotenv from "dotenv";
+import { AwsProvider } from "@cdktf/provider-aws/lib/provider";
+
+dotenv.config();
 
 class MyPortfolioWebSiteTerraformStack extends TerraformStack {
   constructor(scope: Construct, id: string) {
@@ -24,24 +27,42 @@ class MyPortfolioWebSiteTerraformStack extends TerraformStack {
       throw new Error("ACM_CERT_ARN must be set in environment variables");
     }
 
-    // Initialize AWS provider
-    createAwsProvider(this);
+    const secretKey = process.env.AWS_SECRET_KEY;
+    const accessKey = process.env.AWS_ACCESS_KEY;
+    const region = process.env.AWS_REGION;
+
+    if (!secretKey) {
+      throw new Error("AWS secret key not provided");
+    }
+
+    if (!accessKey) {
+      throw new Error("AWS access key not provided");
+    }
+
+    new AwsProvider(this, 'aws-provider', {
+      secretKey,
+      accessKey,
+      region,
+    });
 
     /**
      * thew Backend <- holds terraform state
      * the place where track the resources has been created
      */
-    new S3Backend(scope, {
+    new S3Backend(this, {
       bucket: process.env.REMOTE_STATE_S3_BUCKET_NAME as string,
       key: "terraform.tfstate",
-      encrypt: true
+      encrypt: true,
+      region,
+      accessKey,
+      secretKey
     });
 
     /**
      * This bucket stores static site assets (HTML, JS, CSS, images)
      * It's private because CloudFront OAC will handle secure access.
      */
-    const bucket = new S3Bucket(scope, 'ireshanpathirana-website-s3', {
+    const bucket = new S3Bucket(this, 'ireshanpathirana-website-s3', {
       bucket: process.env.WEB_SITE_CUSTOM_DOMAIN as string, // bucket name should be same as website domain
       acl: 'private',
       versioning: { enabled: false },
@@ -68,7 +89,7 @@ class MyPortfolioWebSiteTerraformStack extends TerraformStack {
      * OAC securely allows CloudFront to access the private S3 bucket.
      * This is the modern replacement for the older Origin Access Identity (OAI).
      */
-    const cloudFrontOac = new CloudfrontOriginAccessControl(scope, 'ireshanpathirana-website-cloudfront-oac', {
+    const cloudFrontOac = new CloudfrontOriginAccessControl(this, 'ireshanpathirana-website-cloudfront-oac', {
       name: 'reshanpathirana-static-site-oac',
       originAccessControlOriginType: 's3',
       signingBehavior: 'always',
@@ -78,8 +99,9 @@ class MyPortfolioWebSiteTerraformStack extends TerraformStack {
     /**
      * Serves the S3 bucket content globally with HTTPS and caching.
      */
-    const cloudfront = new CloudfrontDistribution(scope, 'ireshanpathirana-website-cloudfront-dist', {
+    const cloudfront = new CloudfrontDistribution(this, 'ireshanpathirana-website-cloudfront-dist', {
       enabled: true,
+      dependsOn: [cloudFrontOac],
       origin: [{
         domainName: bucket.bucketRegionalDomainName,
         originId: s3OriginId,                           // unique identifier for this origin
@@ -90,7 +112,13 @@ class MyPortfolioWebSiteTerraformStack extends TerraformStack {
         allowedMethods: ["GET", "HEAD", "OPTIONS"],
         cachedMethods: ["GET", "HEAD", "OPTIONS"],
         compress: true,                                 // enable gzip/brotli
-        viewerProtocolPolicy: 'redirect-to-https'       // force HTTPS
+        viewerProtocolPolicy: 'redirect-to-https',       // force HTTPS
+
+        forwardedValues: {
+          queryString: false,           // whether to forward query strings
+          cookies: { forward: "none" }, // options: none, whitelist, all
+          headers: [],                  // optional headers to forward
+        }
       },
       defaultRootObject: "index.html",                  // default file for root path
       restrictions: {
@@ -101,8 +129,7 @@ class MyPortfolioWebSiteTerraformStack extends TerraformStack {
         sslSupportMethod: "sni-only"                   // standard SSL config
       },
       aliases: [                                       // custom domains for this distribution
-        mainCustomDomain,
-        mainWwwCustomDomain
+        mainCustomDomain
       ],
       tags: {
         env: environment,
@@ -114,7 +141,7 @@ class MyPortfolioWebSiteTerraformStack extends TerraformStack {
      * Grants CloudFront OAC permission to read objects in the private S3 bucket.
      * Without this, CloudFront cannot fetch content.
      */
-    new S3BucketPolicy(scope, 'ireshanpathirana-website-s3-bucket-policy', {
+    new S3BucketPolicy(this, 'ireshanpathirana-website-s3-bucket-policy', {
       bucket: bucket.bucket,
       policy: JSON.stringify({
         Version: "2012-10-17",

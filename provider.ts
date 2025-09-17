@@ -8,7 +8,7 @@ import { Construct } from "constructs";
  * @param scope Construct
  * @returns AwsProvider
  */
-export function createAwsProvider(scope: Construct) {
+const createAwsProvider = (scope: Construct) => {
 
     const secretKey = process.env.AWS_SECRET_KEY;
     const accessKey = process.env.AWS_ACCESS_KEY;
@@ -28,3 +28,5 @@ export function createAwsProvider(scope: Construct) {
         region,
     });
 }
+
+export default createAwsProvider;
